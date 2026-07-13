@@ -1,8 +1,6 @@
 'use client';
 import { useState, useEffect } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
-import { onAuthStateChanged, signOut } from 'firebase/auth';
-import { auth } from '@/lib/firebase';
 import Sidebar from '@/components/Sidebar';
 import { FiMenu, FiBell, FiUser } from 'react-icons/fi';
 
@@ -10,27 +8,21 @@ export default function AdminLayout({ children }) {
   const router = useRouter();
   const pathname = usePathname();
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [user, setUser] = useState(null);
+  const [authed, setAuthed] = useState(false);
   const [checking, setChecking] = useState(true);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
-      if (!firebaseUser) {
-        router.push('/login');
-      } else {
-        setUser({
-          email: firebaseUser.email,
-          name: firebaseUser.displayName || firebaseUser.email.split('@')[0],
-          uid: firebaseUser.uid,
-        });
-      }
-      setChecking(false);
-    });
-    return () => unsubscribe();
+    const ok = sessionStorage.getItem('afya_admin_auth') === '1';
+    if (!ok) {
+      router.push('/login');
+    } else {
+      setAuthed(true);
+    }
+    setChecking(false);
   }, [router]);
 
-  const handleLogout = async () => {
-    await signOut(auth);
+  const handleLogout = () => {
+    sessionStorage.removeItem('afya_admin_auth');
     router.push('/login');
   };
 
@@ -46,7 +38,7 @@ export default function AdminLayout({ children }) {
     );
   }
 
-  if (!user) return null;
+  if (!authed) return null;
 
   return (
     <div className="flex h-screen overflow-hidden bg-gray-50">
@@ -84,7 +76,7 @@ export default function AdminLayout({ children }) {
               <div className="w-7 h-7 bg-primary rounded-full flex items-center justify-center">
                 <FiUser size={14} className="text-dark" />
               </div>
-              <span className="text-sm font-medium text-dark hidden sm:block capitalize">{user.name}</span>
+              <span className="text-sm font-medium text-dark hidden sm:block">Admin</span>
             </div>
           </div>
         </header>

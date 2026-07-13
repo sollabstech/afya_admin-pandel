@@ -1,43 +1,27 @@
 'use client';
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
-import { auth } from '@/lib/firebase';
+
+const ADMIN_USERNAME = process.env.NEXT_PUBLIC_ADMIN_USERNAME;
+const ADMIN_PASSWORD = process.env.NEXT_PUBLIC_ADMIN_PASSWORD;
 
 export default function LoginPage() {
   const router = useRouter();
-  const [email, setEmail]       = useState('');
+  const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError]       = useState('');
   const [loading, setLoading]   = useState(false);
 
-  const handleSubmit = async (e) => {
+  const handleSubmit = (e) => {
     e.preventDefault();
     setError('');
     setLoading(true);
 
-    try {
-      await signInWithEmailAndPassword(auth, email, password);
+    if (username === ADMIN_USERNAME && password === ADMIN_PASSWORD) {
+      sessionStorage.setItem('afya_admin_auth', '1');
       router.push('/dashboard');
-    } catch (err) {
-      // First-time setup: auto-create admin account
-      if (
-        (err.code === 'auth/user-not-found' || err.code === 'auth/invalid-credential') &&
-        email === 'admin@afya.in'
-      ) {
-        try {
-          await createUserWithEmailAndPassword(auth, email, password);
-          router.push('/dashboard');
-        } catch (createErr) {
-          setError('Could not create admin account: ' + createErr.message);
-        }
-      } else if (err.code === 'auth/wrong-password' || err.code === 'auth/invalid-credential') {
-        setError('Incorrect password.');
-      } else if (err.code === 'auth/invalid-email') {
-        setError('Invalid email address.');
-      } else {
-        setError(err.message || 'Sign in failed.');
-      }
+    } else {
+      setError('Invalid username or password.');
     }
 
     setLoading(false);
@@ -56,15 +40,16 @@ export default function LoginPage() {
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Username</label>
             <input
-              type="email"
-              value={email}
-              onChange={e => setEmail(e.target.value)}
+              type="text"
+              value={username}
+              onChange={e => setUsername(e.target.value)}
               className="input"
-              placeholder="admin@afya.in"
+              placeholder="Enter username"
               required
               autoFocus
+              autoComplete="username"
             />
           </div>
           <div>
@@ -76,6 +61,7 @@ export default function LoginPage() {
               className="input"
               placeholder="Enter password"
               required
+              autoComplete="current-password"
             />
           </div>
 
@@ -87,10 +73,6 @@ export default function LoginPage() {
             {loading ? 'Signing in...' : 'Sign In'}
           </button>
         </form>
-
-        <p className="text-center text-xs text-gray-400 mt-6">
-          First login auto-creates your account
-        </p>
       </div>
     </div>
   );
