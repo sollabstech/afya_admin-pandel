@@ -184,8 +184,8 @@ export default function DashboardPage() {
                     <td className="py-2.5 pr-4">
                       <Link href={`/orders/${order.id}`} className="font-medium text-secondary hover:underline">{order.id}</Link>
                     </td>
-                    <td className="py-2.5 pr-4 text-gray-700">{order.customer}</td>
-                    <td className="py-2.5 pr-4 text-gray-500 hidden sm:table-cell">{order.items}</td>
+                    <td className="py-2.5 pr-4 text-gray-700">{order.address?.name || order.customer || '—'}</td>
+                    <td className="py-2.5 pr-4 text-gray-500 hidden sm:table-cell">{Array.isArray(order.items) ? order.items.length : (order.items ?? '—')}</td>
                     <td className="py-2.5 pr-4 font-medium">₹{(order.total || 0).toLocaleString()}</td>
                     <td className="py-2.5">
                       <span className={STATUS_COLORS[order.status] || 'badge-gray'}>{order.status}</span>

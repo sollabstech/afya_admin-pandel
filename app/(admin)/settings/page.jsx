@@ -12,6 +12,13 @@ export default function SettingsPage() {
     minOrder: '199',
     freeDeliveryAbove: '499',
     deliveryFee: '40',
+    paymentRazorpay: true,
+    paymentCOD: true,
+    paymentWallet: true,
+    notifyOrderConfirm: true,
+    notifyShipping: true,
+    notifyDelivery: true,
+    notifyOffers: false,
   });
   const [saved, setSaved]       = useState(false);
   const [seeding, setSeeding]   = useState(false);
@@ -101,10 +108,14 @@ export default function SettingsPage() {
           <h2 className="font-semibold text-dark">Payment Methods</h2>
         </div>
         <div className="space-y-3">
-          {['Razorpay (UPI / Cards)', 'Cash on Delivery (COD)', 'Wallet Balance'].map(method => (
-            <label key={method} className="flex items-center gap-3 cursor-pointer">
-              <input type="checkbox" defaultChecked className="w-4 h-4 accent-secondary" />
-              <span className="text-sm text-gray-700">{method}</span>
+          {[
+            ['paymentRazorpay', 'Razorpay (UPI / Cards)'],
+            ['paymentCOD',      'Cash on Delivery (COD)'],
+            ['paymentWallet',   'Wallet Balance'],
+          ].map(([key, label]) => (
+            <label key={key} className="flex items-center gap-3 cursor-pointer">
+              <input type="checkbox" checked={!!form[key]} onChange={e => set(key, e.target.checked)} className="w-4 h-4 accent-secondary" />
+              <span className="text-sm text-gray-700">{label}</span>
             </label>
           ))}
         </div>
@@ -117,10 +128,15 @@ export default function SettingsPage() {
           <h2 className="font-semibold text-dark">WhatsApp Notifications</h2>
         </div>
         <div className="space-y-3">
-          {['Order confirmation', 'Shipping update', 'Delivery confirmation', 'Offers & promotions'].map(n => (
-            <label key={n} className="flex items-center gap-3 cursor-pointer">
-              <input type="checkbox" defaultChecked className="w-4 h-4 accent-secondary" />
-              <span className="text-sm text-gray-700">{n}</span>
+          {[
+            ['notifyOrderConfirm', 'Order confirmation'],
+            ['notifyShipping',     'Shipping update'],
+            ['notifyDelivery',     'Delivery confirmation'],
+            ['notifyOffers',       'Offers & promotions'],
+          ].map(([key, label]) => (
+            <label key={key} className="flex items-center gap-3 cursor-pointer">
+              <input type="checkbox" checked={!!form[key]} onChange={e => set(key, e.target.checked)} className="w-4 h-4 accent-secondary" />
+              <span className="text-sm text-gray-700">{label}</span>
             </label>
           ))}
         </div>

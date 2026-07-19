@@ -10,6 +10,7 @@ export default function OffersPage() {
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState(EMPTY);
+  const [editingId, setEditingId] = useState(null);
   const [saving, setSaving] = useState(false);
 
   const load = async () => {
@@ -25,15 +26,28 @@ export default function OffersPage() {
 
   useEffect(() => { load(); }, []);
 
+  const openAdd = () => { setForm(EMPTY); setEditingId(null); setShowForm(true); };
+  const openEdit = (c) => {
+    setForm({ code: c.code, type: c.type, discount: c.discount, minOrder: c.minOrder || 0, maxUses: c.maxUses || 100, expiry: c.expiry || '', status: c.status });
+    setEditingId(c.id);
+    setShowForm(true);
+  };
+  const closeForm = () => { setShowForm(false); setForm(EMPTY); setEditingId(null); };
+
   const handleSave = async (e) => {
     e.preventDefault();
     if (!form.code.trim()) { alert('Coupon code is required'); return; }
     setSaving(true);
     try {
-      const ref = await addCoupon({ ...form, used: 0, discount: Number(form.discount), minOrder: Number(form.minOrder), maxUses: Number(form.maxUses) });
-      setCoupons(prev => [...prev, { id: ref.id, ...form, used: 0 }]);
-      setForm(EMPTY);
-      setShowForm(false);
+      const payload = { ...form, discount: Number(form.discount), minOrder: Number(form.minOrder), maxUses: Number(form.maxUses) };
+      if (editingId) {
+        await updateCoupon(editingId, payload);
+        setCoupons(prev => prev.map(c => c.id === editingId ? { ...c, ...payload } : c));
+      } else {
+        const ref = await addCoupon({ ...payload, used: 0 });
+        setCoupons(prev => [...prev, { id: ref.id, ...payload, used: 0 }]);
+      }
+      closeForm();
     } catch (err) {
       alert('Error: ' + err.message);
     }
@@ -69,15 +83,15 @@ export default function OffersPage() {
         </div>
         <div className="flex gap-2">
           <button onClick={load} className="btn-outline"><FiRefreshCw size={14} /></button>
-          <button onClick={() => setShowForm(true)} className="btn-primary"><FiPlus size={16} /> New Coupon</button>
+          <button onClick={openAdd} className="btn-primary"><FiPlus size={16} /> New Coupon</button>
         </div>
       </div>
 
       {showForm && (
         <div className="card p-6">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="font-bold text-dark">New Coupon</h2>
-            <button onClick={() => { setShowForm(false); setForm(EMPTY); }} className="p-1 rounded hover:bg-gray-100"><FiX size={18} /></button>
+            <h2 className="font-bold text-dark">{editingId ? 'Edit Coupon' : 'New Coupon'}</h2>
+            <button onClick={closeForm} className="p-1 rounded hover:bg-gray-100"><FiX size={18} /></button>
           </div>
           <form onSubmit={handleSave} className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
             <div className="sm:col-span-2 md:col-span-1">
@@ -108,8 +122,8 @@ export default function OffersPage() {
               <input className="input" type="date" value={form.expiry} onChange={e => setForm(f => ({ ...f, expiry: e.target.value }))} />
             </div>
             <div className="sm:col-span-2 md:col-span-3 flex gap-3">
-              <button type="submit" disabled={saving} className="btn-primary">{saving ? 'Saving...' : 'Save Coupon'}</button>
-              <button type="button" onClick={() => { setShowForm(false); setForm(EMPTY); }} className="btn-outline">Cancel</button>
+              <button type="submit" disabled={saving} className="btn-primary">{saving ? 'Saving...' : editingId ? 'Save Changes' : 'Save Coupon'}</button>
+              <button type="button" onClick={closeForm} className="btn-outline">Cancel</button>
             </div>
           </form>
         </div>
@@ -156,7 +170,8 @@ export default function OffersPage() {
               )}
 
               <div className="flex gap-2 mt-4">
-                <button onClick={() => handleDelete(c.id)} className="p-1.5 rounded-lg hover:bg-red-50 text-gray-500 hover:text-red-500 border border-gray-200 transition-colors ml-auto"><FiTrash2 size={14} /></button>
+                <button onClick={() => openEdit(c)} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500 hover:text-secondary border border-gray-200 transition-colors ml-auto"><FiEdit2 size={14} /></button>
+                <button onClick={() => handleDelete(c.id)} className="p-1.5 rounded-lg hover:bg-red-50 text-gray-500 hover:text-red-500 border border-gray-200 transition-colors"><FiTrash2 size={14} /></button>
               </div>
             </div>
           ))}
