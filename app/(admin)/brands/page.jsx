@@ -1,18 +1,19 @@
 'use client';
 import { useState, useEffect } from 'react';
-import { getBrands, addBrand, deleteBrand } from '@/lib/firestore';
+import { getBrands, addBrand, updateBrand, deleteBrand } from '@/lib/firestore';
 import { BRANDS as MOCK_BRANDS } from '@/lib/mockData';
-import { FiPlus, FiTrash2, FiRefreshCw, FiX, FiExternalLink } from 'react-icons/fi';
+import { FiPlus, FiTrash2, FiEdit2, FiRefreshCw, FiX, FiExternalLink } from 'react-icons/fi';
 
 const EMPTY = { name: '', category: '', website: '', status: 'active' };
 
 export default function BrandsPage() {
-  const [brands, setBrands]   = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [showForm, setShowForm] = useState(false);
-  const [form, setForm]       = useState(EMPTY);
-  const [saving, setSaving]   = useState(false);
-  const [error, setError]     = useState('');
+  const [brands, setBrands]     = useState([]);
+  const [loading, setLoading]   = useState(true);
+  const [modal, setModal]       = useState(null); // null | 'add' | 'edit'
+  const [form, setForm]         = useState(EMPTY);
+  const [editingId, setEditingId] = useState(null);
+  const [saving, setSaving]     = useState(false);
+  const [error, setError]       = useState('');
 
   const load = async () => {
     setLoading(true);
@@ -27,16 +28,31 @@ export default function BrandsPage() {
 
   useEffect(() => { load(); }, []);
 
+  const openAdd = () => { setForm(EMPTY); setEditingId(null); setError(''); setModal('add'); };
+
+  const openEdit = (b) => {
+    setForm({ name: b.name || '', category: b.category || '', website: b.website || '', status: b.status || 'active' });
+    setEditingId(b.id);
+    setError('');
+    setModal('edit');
+  };
+
+  const closeModal = () => { setModal(null); setEditingId(null); };
+
   const handleSave = async (e) => {
     e.preventDefault();
     if (!form.name.trim()) { setError('Brand name is required.'); return; }
     setSaving(true);
     try {
-      const ref = await addBrand({ name: form.name.trim(), category: form.category.trim(), website: form.website.trim(), status: form.status, products: 0 });
-      setBrands(prev => [...prev, { id: ref.id, ...form, products: 0 }]);
-      setForm(EMPTY);
-      setShowForm(false);
-      setError('');
+      const payload = { name: form.name.trim(), category: form.category.trim(), website: form.website.trim(), status: form.status };
+      if (modal === 'add') {
+        const ref = await addBrand({ ...payload, products: 0 });
+        setBrands(prev => [...prev, { id: ref.id, ...payload, products: 0 }]);
+      } else {
+        await updateBrand(editingId, payload);
+        setBrands(prev => prev.map(b => b.id === editingId ? { ...b, ...payload } : b));
+      }
+      closeModal();
     } catch (err) {
       setError('Error: ' + err.message);
     }
@@ -62,42 +78,48 @@ export default function BrandsPage() {
         </div>
         <div className="flex gap-2">
           <button onClick={load} className="btn-outline"><FiRefreshCw size={14} /></button>
-          <button onClick={() => { setShowForm(true); setError(''); }} className="btn-primary"><FiPlus size={16} /> Add Brand</button>
+          <button onClick={openAdd} className="btn-primary"><FiPlus size={16} /> Add Brand</button>
         </div>
       </div>
 
-      {showForm && (
-        <div className="card p-5">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="font-bold text-dark">New Brand</h2>
-            <button onClick={() => { setShowForm(false); setForm(EMPTY); setError(''); }} className="p-1 rounded hover:bg-gray-100"><FiX size={18} /></button>
+      {/* Add / Edit Modal */}
+      {modal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40"
+          onClick={e => { if (e.target === e.currentTarget) closeModal(); }}
+        >
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+              <h2 className="text-lg font-bold text-dark">{modal === 'add' ? 'New Brand' : 'Edit Brand'}</h2>
+              <button onClick={closeModal} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500"><FiX size={20} /></button>
+            </div>
+            <form onSubmit={handleSave} className="p-6 space-y-4">
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Brand Name *</label>
+                <input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} className="input" placeholder="e.g. Himalaya" required />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Category</label>
+                <input value={form.category} onChange={e => setForm(f => ({ ...f, category: e.target.value }))} className="input" placeholder="e.g. Health & Beauty" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Website</label>
+                <input value={form.website} onChange={e => setForm(f => ({ ...f, website: e.target.value }))} className="input" placeholder="https://..." type="url" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Status</label>
+                <select value={form.status} onChange={e => setForm(f => ({ ...f, status: e.target.value }))} className="input">
+                  <option value="active">Active</option>
+                  <option value="inactive">Inactive</option>
+                </select>
+              </div>
+              {error && <p className="text-red-500 text-sm bg-red-50 px-3 py-2 rounded-lg">{error}</p>}
+              <div className="flex justify-end gap-3 pt-2">
+                <button type="button" onClick={closeModal} className="btn-outline">Cancel</button>
+                <button type="submit" disabled={saving} className="btn-primary">{saving ? 'Saving...' : modal === 'add' ? 'Add Brand' : 'Save Changes'}</button>
+              </div>
+            </form>
           </div>
-          <form onSubmit={handleSave} className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
-            <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Brand Name *</label>
-              <input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} className="input" placeholder="e.g. Himalaya" required />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Category</label>
-              <input value={form.category} onChange={e => setForm(f => ({ ...f, category: e.target.value }))} className="input" placeholder="e.g. Health & Beauty" />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Website</label>
-              <input value={form.website} onChange={e => setForm(f => ({ ...f, website: e.target.value }))} className="input" placeholder="https://..." type="url" />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Status</label>
-              <select value={form.status} onChange={e => setForm(f => ({ ...f, status: e.target.value }))} className="input">
-                <option value="active">Active</option>
-                <option value="inactive">Inactive</option>
-              </select>
-            </div>
-            {error && <p className="col-span-full text-red-500 text-sm bg-red-50 px-3 py-2 rounded-lg">{error}</p>}
-            <div className="col-span-full flex gap-3">
-              <button type="submit" disabled={saving} className="btn-primary">{saving ? 'Saving...' : 'Add Brand'}</button>
-              <button type="button" onClick={() => { setShowForm(false); setForm(EMPTY); setError(''); }} className="btn-outline">Cancel</button>
-            </div>
-          </form>
         </div>
       )}
 
@@ -135,9 +157,10 @@ export default function BrandsPage() {
                   <td className="px-4 py-3 text-right">
                     <div className="flex items-center justify-end gap-1">
                       {b.website && (
-                        <a href={b.website} target="_blank" rel="noopener noreferrer" className="p-1.5 rounded hover:bg-gray-100 text-gray-500 hover:text-secondary transition-colors"><FiExternalLink size={14} /></a>
+                        <a href={b.website} target="_blank" rel="noopener noreferrer" className="p-1.5 rounded hover:bg-gray-100 text-gray-500 hover:text-secondary transition-colors" title="Visit website"><FiExternalLink size={14} /></a>
                       )}
-                      <button onClick={() => handleDelete(b.id)} className="p-1.5 rounded hover:bg-red-50 text-gray-500 hover:text-red-500 transition-colors"><FiTrash2 size={14} /></button>
+                      <button onClick={() => openEdit(b)} className="p-1.5 rounded hover:bg-gray-100 text-gray-500 hover:text-secondary transition-colors" title="Edit"><FiEdit2 size={14} /></button>
+                      <button onClick={() => handleDelete(b.id)} className="p-1.5 rounded hover:bg-red-50 text-gray-500 hover:text-red-500 transition-colors" title="Delete"><FiTrash2 size={14} /></button>
                     </div>
                   </td>
                 </tr>

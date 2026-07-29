@@ -1,6 +1,6 @@
 'use client';
 import { useState, useEffect } from 'react';
-import { FiSave, FiStore, FiTruck, FiCreditCard, FiPhone, FiDatabase, FiCheckCircle } from 'react-icons/fi';
+import { FiSave, FiShoppingBag, FiTruck, FiCreditCard, FiPhone, FiDatabase, FiCheckCircle } from 'react-icons/fi';
 import { getSettings, saveSettings } from '@/lib/firestore';
 import { seedDatabase } from '@/lib/seed';
 
@@ -60,7 +60,7 @@ export default function SettingsPage() {
       {/* Store info */}
       <div className="card p-5">
         <div className="flex items-center gap-2 mb-4">
-          <FiStore size={16} className="text-secondary" />
+          <FiShoppingBag size={16} className="text-secondary" />
           <h2 className="font-semibold text-dark">Store Information</h2>
         </div>
         <div className="space-y-4">

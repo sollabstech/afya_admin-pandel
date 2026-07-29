@@ -33,8 +33,34 @@ export default function ProductsPage() {
   const load = async () => {
     setLoading(true);
     try {
-      const data = await getProducts();
-      if (data.length > 0) setProducts(data);
+      const CATS = ['toys', 'foods', 'appliances', 'supermarket'];
+      const [firestoreData, dummyRes] = await Promise.allSettled([
+        getProducts(),
+        fetch('https://dummyjson.com/products?limit=80').then(r => r.json()),
+      ]);
+
+      const fsProducts = firestoreData.status === 'fulfilled' ? (firestoreData.value || []) : [];
+      const dummyProducts = dummyRes.status === 'fulfilled'
+        ? (dummyRes.value.products || []).map((p, i) => ({
+            id: `live-${p.id}`,
+            name: p.title,
+            category: CATS[i % CATS.length],
+            brand: p.brand || p.category,
+            price: Math.round(p.price * 80),
+            originalPrice: Math.round(p.price * 80 * (1 + (p.discountPercentage || 12) / 100)),
+            stock: p.stock,
+            status: p.stock > 0 ? 'active' : 'out_of_stock',
+            image: p.thumbnail,
+            sku: `DUMMY-${p.id}`,
+            rating: p.rating,
+            reviews: Math.round((p.rating || 4) * 47),
+            description: p.description,
+          }))
+        : [];
+
+      const fsIds = new Set(fsProducts.map(p => p.id));
+      const merged = [...fsProducts, ...dummyProducts.filter(p => !fsIds.has(p.id))];
+      setProducts(merged.length > 0 ? merged : MOCK_PRODUCTS);
     } catch (err) {
       console.warn('Using mock data:', err.message);
     }
@@ -65,7 +91,7 @@ export default function ProductsPage() {
 
   const openEdit = (p) => {
     setForm({
-      name: p.name || '', sku: p.sku || '', category: p.category || '',
+      name: p.name || '', sku: p.sku || '', category: (p.category || '').toLowerCase(),
       brand: p.brand || '', price: p.price ?? '', originalPrice: p.originalPrice ?? p.mrp ?? '',
       stock: p.stock ?? '', description: p.description || '', status: p.status || 'active',
       rating: p.rating ?? '4.0', reviews: p.reviews ?? '0', image: p.image || '',
