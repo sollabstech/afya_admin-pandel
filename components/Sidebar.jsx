@@ -5,7 +5,7 @@ import {
   FiGrid, FiPackage, FiTag, FiAward, FiAlertCircle,
   FiShoppingBag, FiUsers, FiPercent, FiImage,
   FiBarChart2, FiBell, FiGift, FiRepeat,
-  FiUserCheck, FiSettings, FiFileText, FiLogOut,
+  FiUserCheck, FiSettings, FiFileText, FiLogOut, FiSliders,
 } from 'react-icons/fi';
 
 const NAV = [
@@ -16,10 +16,11 @@ const NAV = [
   {
     group: 'Catalog',
     items: [
-      { href: '/products',   icon: FiPackage,    label: 'Products' },
-      { href: '/categories', icon: FiTag,         label: 'Categories' },
-      { href: '/brands',     icon: FiAward,       label: 'Brands' },
-      { href: '/inventory',  icon: FiAlertCircle, label: 'Inventory' },
+      { href: '/products',    icon: FiPackage,    label: 'Products' },
+      { href: '/categories',  icon: FiTag,         label: 'Categories' },
+      { href: '/brands',      icon: FiAward,       label: 'Brands' },
+      { href: '/attributes',  icon: FiSliders,     label: 'Attributes' },
+      { href: '/inventory',   icon: FiAlertCircle, label: 'Inventory' },
     ],
   },
   {

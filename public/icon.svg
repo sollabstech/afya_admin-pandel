@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <!-- Brown rounded background (pill shape from logo) -->
+  <rect x="4" y="22" width="56" height="38" rx="14" ry="14" fill="#6B3A1F" stroke="#C49040" stroke-width="2.5"/>
+  <!-- Brown upper semicircle (squirrel dome from logo) -->
+  <ellipse cx="32" cy="24" rx="24" ry="20" fill="#6B3A1F" stroke="#C49040" stroke-width="2.5"/>
+  <!-- Squirrel body (simplified silhouette) -->
+  <g fill="#E8C07A">
+    <!-- Body -->
+    <ellipse cx="30" cy="20" rx="7" ry="9" transform="rotate(-10 30 20)"/>
+    <!-- Head -->
+    <circle cx="24" cy="13" r="5.5"/>
+    <!-- Ear -->
+    <ellipse cx="21" cy="9" rx="2.5" ry="3.5" transform="rotate(-20 21 9)"/>
+    <!-- Big fluffy tail -->
+    <path d="M36 14 Q52 8 50 22 Q48 32 38 28 Q42 20 36 14Z"/>
+    <!-- Eye -->
+    <circle cx="22" cy="13" r="1.2" fill="#6B3A1F"/>
+    <!-- Nose -->
+    <circle cx="19.5" cy="15" r="0.8" fill="#C49040"/>
+  </g>
+  <!-- "Á" letter in golden color -->
+  <text
+    x="32"
+    y="52"
+    font-family="Georgia, 'Times New Roman', serif"
+    font-weight="bold"
+    font-size="22"
+    text-anchor="middle"
+    fill="#E8C07A"
+    letter-spacing="0"
+  >Á</text>
+</svg>

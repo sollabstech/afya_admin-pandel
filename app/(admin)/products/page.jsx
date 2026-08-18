@@ -1,50 +1,52 @@
 'use client';
-import { useState, useEffect, useRef } from 'react';
-import { getProducts, addProduct, updateProduct, deleteProduct } from '@/lib/firestore';
-import { storage } from '@/lib/firebase';
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
+import Link from 'next/link';
+import {
+  getProducts, getTrashedProducts, trashProduct, restoreProduct,
+  deleteProduct, duplicateProduct, updateProduct,
+} from '@/lib/firestore';
 import { PRODUCTS as MOCK_PRODUCTS } from '@/lib/mockData';
-import { FiSearch, FiPlus, FiEdit2, FiTrash2, FiRefreshCw, FiX, FiUpload, FiImage } from 'react-icons/fi';
+import {
+  FiSearch, FiPlus, FiEdit2, FiTrash2, FiRefreshCw, FiImage,
+  FiCopy, FiRotateCcw, FiEye, FiChevronDown, FiPackage,
+  FiAlertTriangle, FiCheck, FiX,
+} from 'react-icons/fi';
 
-const CATEGORIES = ['toys', 'foods', 'appliances', 'supermarket', 'beauty', 'health', 'clothing', 'electronics', 'other'];
-const EMPTY_FORM = {
-  name: '', sku: '', category: '', brand: '', price: '', originalPrice: '',
-  stock: '', description: '', status: 'active', rating: '4.0', reviews: '0', image: '',
-};
+const CATS = ['toys', 'foods', 'appliances', 'supermarket'];
+const STATUSES = ['active', 'inactive', 'out_of_stock', 'draft', 'archived'];
 
 export default function ProductsPage() {
-  const [products, setProducts]         = useState(MOCK_PRODUCTS);
-  const [loading, setLoading]           = useState(true);
-  const [search, setSearch]             = useState('');
-  const [filterCat, setFilterCat]       = useState('');
-  const [filterStatus, setFilterStatus] = useState('');
-
-  // modal state
-  const [modal, setModal]               = useState(null); // null | 'add' | 'edit'
-  const [form, setForm]                 = useState(EMPTY_FORM);
-  const [imageFile, setImageFile]       = useState(null);
-  const [imagePreview, setImagePreview] = useState('');
-  const [uploading, setUploading]       = useState(false);
-  const [saving, setSaving]             = useState(false);
-  const [formError, setFormError]       = useState('');
-  const [editingId, setEditingId]       = useState(null);
-  const fileInputRef                    = useRef(null);
+  const router = useRouter();
+  const [products, setProducts]           = useState([]);
+  const [loading, setLoading]             = useState(true);
+  const [search, setSearch]               = useState('');
+  const [filterCat, setFilterCat]         = useState('');
+  const [filterStatus, setFilterStatus]   = useState('');
+  const [filterType, setFilterType]       = useState(''); // '' | 'simple' | 'variable'
+  const [trashMode, setTrashMode]         = useState(false);
+  const [selected, setSelected]           = useState(new Set());
+  const [bulkAction, setBulkAction]       = useState('');
+  const [applyingBulk, setApplyingBulk]  = useState(false);
+  const [actionMsg, setActionMsg]         = useState('');
 
   const load = async () => {
     setLoading(true);
+    setSelected(new Set());
     try {
-      const CATS = ['toys', 'foods', 'appliances', 'supermarket'];
+      const DUMMY_CATS = ['toys', 'foods', 'appliances', 'supermarket'];
       const [firestoreData, dummyRes] = await Promise.allSettled([
-        getProducts(),
-        fetch('https://dummyjson.com/products?limit=80').then(r => r.json()),
+        trashMode ? getTrashedProducts() : getProducts(),
+        !trashMode ? fetch('https://dummyjson.com/products?limit=80').then(r => r.json()) : Promise.reject('skip'),
       ]);
 
       const fsProducts = firestoreData.status === 'fulfilled' ? (firestoreData.value || []) : [];
-      const dummyProducts = dummyRes.status === 'fulfilled'
+      const dummyProducts = (!trashMode && dummyRes.status === 'fulfilled')
         ? (dummyRes.value.products || []).map((p, i) => ({
             id: `live-${p.id}`,
             name: p.title,
-            category: CATS[i % CATS.length],
+            productType: 'simple',
+            category: DUMMY_CATS[i % DUMMY_CATS.length],
             brand: p.brand || p.category,
             price: Math.round(p.price * 80),
             originalPrice: Math.round(p.price * 80 * (1 + (p.discountPercentage || 12) / 100)),
@@ -60,152 +62,134 @@ export default function ProductsPage() {
 
       const fsIds = new Set(fsProducts.map(p => p.id));
       const merged = [...fsProducts, ...dummyProducts.filter(p => !fsIds.has(p.id))];
-      setProducts(merged.length > 0 ? merged : MOCK_PRODUCTS);
+      setProducts(merged.length > 0 ? merged : (trashMode ? [] : MOCK_PRODUCTS));
     } catch (err) {
-      console.warn('Using mock data:', err.message);
+      console.warn('Load error:', err.message);
+      if (!trashMode) setProducts(MOCK_PRODUCTS);
     }
     setLoading(false);
   };
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); }, [trashMode]);
 
-  const categories = [...new Set([...CATEGORIES, ...products.map(p => p.category).filter(Boolean)])];
+  const categories = [...new Set([...CATS, ...products.map(p => p.category).filter(Boolean)])];
+
   const filtered = products.filter(p => {
     const q = search.toLowerCase();
     return (
       (p.name?.toLowerCase().includes(q) || p.sku?.toLowerCase().includes(q) || p.brand?.toLowerCase().includes(q)) &&
       (!filterCat || p.category === filterCat) &&
-      (!filterStatus || p.status === filterStatus)
+      (!filterStatus || p.status === filterStatus) &&
+      (!filterType || (p.productType || 'simple') === filterType)
     );
   });
 
-  // ── Modal helpers ──────────────────────────────────────────
-  const openAdd = () => {
-    setForm(EMPTY_FORM);
-    setImageFile(null);
-    setImagePreview('');
-    setFormError('');
-    setEditingId(null);
-    setModal('add');
+  // ── Selection helpers ────────────────────────────────────────
+  const toggleAll = () => {
+    if (selected.size === filtered.length) setSelected(new Set());
+    else setSelected(new Set(filtered.map(p => p.id)));
   };
+  const toggle = (id) => setSelected(prev => {
+    const next = new Set(prev);
+    next.has(id) ? next.delete(id) : next.add(id);
+    return next;
+  });
 
-  const openEdit = (p) => {
-    setForm({
-      name: p.name || '', sku: p.sku || '', category: (p.category || '').toLowerCase(),
-      brand: p.brand || '', price: p.price ?? '', originalPrice: p.originalPrice ?? p.mrp ?? '',
-      stock: p.stock ?? '', description: p.description || '', status: p.status || 'active',
-      rating: p.rating ?? '4.0', reviews: p.reviews ?? '0', image: p.image || '',
-    });
-    setImageFile(null);
-    setImagePreview(p.image || '');
-    setFormError('');
-    setEditingId(p.id);
-    setModal('edit');
-  };
-
-  const closeModal = () => { setModal(null); setEditingId(null); };
-
-  const handleFileChange = (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    if (!file.type.startsWith('image/')) { setFormError('Please select an image file.'); return; }
-    if (file.size > 5 * 1024 * 1024) { setFormError('Image must be under 5 MB.'); return; }
-    setImageFile(file);
-    setImagePreview(URL.createObjectURL(file));
-    setFormError('');
-  };
-
-  const uploadImage = async () => {
-    if (!imageFile) return form.image || '';
-    setUploading(true);
+  // ── Bulk actions ─────────────────────────────────────────────
+  const applyBulk = async () => {
+    if (!bulkAction || selected.size === 0) return;
+    if (!confirm(`Apply "${bulkAction}" to ${selected.size} product(s)?`)) return;
+    setApplyingBulk(true);
     try {
-      const path = `products/${Date.now()}-${imageFile.name.replace(/\s+/g, '_')}`;
-      const storageRef = ref(storage, path);
-      await uploadBytes(storageRef, imageFile);
-      return await getDownloadURL(storageRef);
-    } finally {
-      setUploading(false);
-    }
-  };
-
-  const handleSave = async (e) => {
-    e.preventDefault();
-    setFormError('');
-    if (!form.name.trim()) { setFormError('Product name is required.'); return; }
-    if (!form.price || isNaN(Number(form.price))) { setFormError('Valid price is required.'); return; }
-    if (form.stock === '' || isNaN(Number(form.stock))) { setFormError('Valid stock quantity is required.'); return; }
-
-    setSaving(true);
-    try {
-      const imageUrl = await uploadImage();
-      const stock = Number(form.stock);
-      const payload = {
-        name: form.name.trim(),
-        sku: form.sku.trim() || `SKU-${Date.now()}`,
-        category: form.category || 'other',
-        brand: form.brand.trim(),
-        price: Number(form.price),
-        originalPrice: form.originalPrice ? Number(form.originalPrice) : Number(form.price),
-        mrp: form.originalPrice ? Number(form.originalPrice) : Number(form.price),
-        stock,
-        description: form.description.trim(),
-        status: stock === 0 ? 'out_of_stock' : form.status,
-        rating: Number(form.rating) || 4.0,
-        reviews: Number(form.reviews) || 0,
-        image: imageUrl,
-        images: imageUrl ? [imageUrl] : [],
-      };
-
-      if (modal === 'add') {
-        await addProduct(payload);
-      } else {
-        await updateProduct(editingId, payload);
+      const ids = [...selected].filter(id => !id.startsWith('live-')); // only Firestore docs
+      if (ids.length < selected.size) {
+        setActionMsg(`Note: ${selected.size - ids.length} catalogue product(s) skipped (read-only).`);
       }
+      await Promise.all(ids.map(id => {
+        if (bulkAction === 'trash') return trashProduct(id);
+        if (bulkAction === 'activate') return updateProduct(id, { status: 'active' });
+        if (bulkAction === 'deactivate') return updateProduct(id, { status: 'inactive' });
+        if (bulkAction === 'restore') return restoreProduct(id);
+        if (bulkAction === 'delete') return deleteProduct(id);
+        return Promise.resolve();
+      }));
+      setBulkAction('');
       await load();
-      closeModal();
-    } catch (err) {
-      setFormError('Error: ' + err.message);
-    } finally {
-      setSaving(false);
-    }
+    } catch (err) { alert(err.message); }
+    setApplyingBulk(false);
+  };
+
+  const handleTrash = async (id) => {
+    if (!confirm('Move this product to trash?')) return;
+    try { await trashProduct(id); setProducts(p => p.filter(x => x.id !== id)); }
+    catch (err) { alert(err.message); }
+  };
+
+  const handleRestore = async (id) => {
+    try { await restoreProduct(id); setProducts(p => p.filter(x => x.id !== id)); }
+    catch (err) { alert(err.message); }
   };
 
   const handleDelete = async (id) => {
-    if (!confirm('Delete this product?')) return;
-    try {
-      await deleteProduct(id);
-      setProducts(prev => prev.filter(p => p.id !== id));
-    } catch (err) {
-      alert('Error: ' + err.message);
-    }
+    if (!confirm('Permanently delete this product? This cannot be undone.')) return;
+    try { await deleteProduct(id); setProducts(p => p.filter(x => x.id !== id)); }
+    catch (err) { alert(err.message); }
   };
 
-  const field = (label, key, type = 'text', extra = {}) => (
-    <div>
-      <label className="block text-xs font-medium text-gray-600 mb-1">{label}</label>
-      <input
-        type={type}
-        value={form[key]}
-        onChange={e => setForm(f => ({ ...f, [key]: e.target.value }))}
-        className="input text-sm"
-        {...extra}
-      />
-    </div>
-  );
+  const handleDuplicate = async (id) => {
+    if (id.startsWith('live-')) { alert('Cannot duplicate catalogue products.'); return; }
+    try {
+      const newId = await duplicateProduct(id);
+      await load();
+      setActionMsg('Product duplicated as draft.');
+    } catch (err) { alert(err.message); }
+  };
+
+  const isFirestore = (id) => !id.startsWith('live-');
+
+  const statusBadge = (s) => {
+    if (s === 'active') return <span className="badge-green">Active</span>;
+    if (s === 'out_of_stock') return <span className="badge-yellow">Out of Stock</span>;
+    if (s === 'archived') return <span className="badge-red">Archived</span>;
+    if (s === 'draft') return <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600">Draft</span>;
+    return <span className="badge-red">{s || 'inactive'}</span>;
+  };
 
   return (
     <div className="space-y-5">
       {/* Header */}
       <div className="flex flex-wrap items-center gap-3 justify-between">
         <div>
-          <h1 className="text-xl font-bold text-dark">Products</h1>
-          <p className="text-sm text-gray-500">{products.length} products {loading ? '(loading...)' : ''}</p>
+          <h1 className="text-xl font-bold text-dark">{trashMode ? 'Trash' : 'Products'}</h1>
+          <p className="text-sm text-gray-500">
+            {trashMode ? `${products.length} trashed product(s)` : `${products.length} products total`}
+            {loading && ' (loading...)'}
+          </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
+          <button
+            onClick={() => setTrashMode(t => !t)}
+            className={`btn-outline ${trashMode ? 'border-orange-300 text-orange-600' : ''}`}
+          >
+            <FiTrash2 size={14} /> {trashMode ? 'Exit Trash' : 'Trash'}
+          </button>
           <button onClick={load} className="btn-outline"><FiRefreshCw size={14} /> Refresh</button>
-          <button onClick={openAdd} className="btn-primary"><FiPlus size={16} /> Add Product</button>
+          {!trashMode && (
+            <Link href="/products/new" className="btn-primary flex items-center gap-1.5">
+              <FiPlus size={16} /> Add Product
+            </Link>
+          )}
         </div>
       </div>
+
+      {/* Action message */}
+      {actionMsg && (
+        <div className="flex items-center gap-2 px-4 py-3 bg-blue-50 border border-blue-100 rounded-xl text-sm text-blue-700">
+          <FiCheck size={15} />
+          {actionMsg}
+          <button onClick={() => setActionMsg('')} className="ml-auto"><FiX size={14} /></button>
+        </div>
+      )}
 
       {/* Filters */}
       <div className="card p-4 flex flex-wrap gap-3">
@@ -215,25 +199,69 @@ export default function ProductsPage() {
         </div>
         <select value={filterCat} onChange={e => setFilterCat(e.target.value)} className="input w-auto min-w-36">
           <option value="">All Categories</option>
-          {categories.map(c => <option key={c} value={c}>{c}</option>)}
+          {categories.map(c => <option key={c} value={c} className="capitalize">{c}</option>)}
         </select>
-        <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)} className="input w-auto min-w-36">
-          <option value="">All Status</option>
-          <option value="active">Active</option>
-          <option value="out_of_stock">Out of Stock</option>
-          <option value="inactive">Inactive</option>
+        <select value={filterType} onChange={e => setFilterType(e.target.value)} className="input w-auto min-w-32">
+          <option value="">All Types</option>
+          <option value="simple">Simple</option>
+          <option value="variable">Variable</option>
         </select>
+        {!trashMode && (
+          <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)} className="input w-auto min-w-36">
+            <option value="">All Status</option>
+            <option value="active">Active</option>
+            <option value="draft">Draft</option>
+            <option value="out_of_stock">Out of Stock</option>
+            <option value="inactive">Inactive</option>
+          </select>
+        )}
       </div>
+
+      {/* Bulk Actions */}
+      {selected.size > 0 && (
+        <div className="flex items-center gap-3 px-4 py-3 bg-primary/10 border border-primary/20 rounded-xl">
+          <span className="text-sm font-medium text-dark">{selected.size} selected</span>
+          <select value={bulkAction} onChange={e => setBulkAction(e.target.value)} className="input w-auto text-sm">
+            <option value="">Choose action...</option>
+            {trashMode ? (
+              <>
+                <option value="restore">Restore</option>
+                <option value="delete">Delete Permanently</option>
+              </>
+            ) : (
+              <>
+                <option value="activate">Set Active</option>
+                <option value="deactivate">Set Inactive</option>
+                <option value="trash">Move to Trash</option>
+              </>
+            )}
+          </select>
+          <button onClick={applyBulk} disabled={!bulkAction || applyingBulk} className="btn-primary text-sm py-1.5">
+            {applyingBulk ? 'Applying...' : 'Apply'}
+          </button>
+          <button onClick={() => setSelected(new Set())} className="ml-auto text-sm text-gray-500 hover:text-dark">
+            Clear
+          </button>
+        </div>
+      )}
 
       {/* Table */}
       <div className="card overflow-x-auto">
         <table className="w-full text-sm">
           <thead className="bg-gray-50 border-b border-gray-100">
             <tr className="text-left text-gray-500">
+              <th className="px-4 py-3 w-8">
+                <input
+                  type="checkbox"
+                  checked={selected.size === filtered.length && filtered.length > 0}
+                  onChange={toggleAll}
+                  className="w-4 h-4 accent-primary"
+                />
+              </th>
               <th className="px-4 py-3 font-medium">Product</th>
               <th className="px-4 py-3 font-medium">SKU</th>
               <th className="px-4 py-3 font-medium hidden md:table-cell">Category</th>
-              <th className="px-4 py-3 font-medium hidden md:table-cell">Brand</th>
+              <th className="px-4 py-3 font-medium hidden lg:table-cell">Brand</th>
               <th className="px-4 py-3 font-medium">Price</th>
               <th className="px-4 py-3 font-medium">Stock</th>
               <th className="px-4 py-3 font-medium">Status</th>
@@ -241,20 +269,44 @@ export default function ProductsPage() {
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-50">
-            {filtered.map(p => (
-              <tr key={p.id} className="hover:bg-gray-50">
+            {loading && (
+              <tr><td colSpan={9} className="text-center py-12 text-gray-400">
+                <FiPackage size={32} className="mx-auto mb-2 opacity-30" />
+                Loading products...
+              </td></tr>
+            )}
+            {!loading && filtered.length === 0 && (
+              <tr><td colSpan={9} className="text-center py-12 text-gray-400">
+                {trashMode ? 'Trash is empty.' : 'No products found.'}
+              </td></tr>
+            )}
+            {!loading && filtered.map(p => (
+              <tr key={p.id} className={`hover:bg-gray-50 ${selected.has(p.id) ? 'bg-primary/5' : ''}`}>
+                <td className="px-4 py-3">
+                  <input
+                    type="checkbox"
+                    checked={selected.has(p.id)}
+                    onChange={() => toggle(p.id)}
+                    className="w-4 h-4 accent-primary"
+                  />
+                </td>
                 <td className="px-4 py-3">
                   <div className="flex items-center gap-3">
                     {p.image
                       ? <img src={p.image} alt={p.name} className="w-10 h-10 rounded-lg object-cover flex-shrink-0 bg-gray-100" />
                       : <div className="w-10 h-10 rounded-lg bg-gray-100 flex items-center justify-center flex-shrink-0"><FiImage size={16} className="text-gray-400" /></div>
                     }
-                    <span className="font-medium text-dark line-clamp-1 max-w-[180px]">{p.name}</span>
+                    <div className="min-w-0">
+                      <p className="font-medium text-dark line-clamp-1 max-w-[200px]">{p.name}</p>
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${p.productType === 'variable' ? 'bg-purple-100 text-purple-700' : 'bg-gray-100 text-gray-500'}`}>
+                        {p.productType === 'variable' ? 'Variable' : 'Simple'}
+                      </span>
+                    </div>
                   </div>
                 </td>
-                <td className="px-4 py-3 text-gray-500 font-mono text-xs">{p.sku}</td>
-                <td className="px-4 py-3 text-gray-600 hidden md:table-cell capitalize">{p.category}</td>
-                <td className="px-4 py-3 text-gray-600 hidden md:table-cell">{p.brand}</td>
+                <td className="px-4 py-3 text-gray-500 font-mono text-xs">{p.sku || '—'}</td>
+                <td className="px-4 py-3 text-gray-600 hidden md:table-cell capitalize">{p.category || '—'}</td>
+                <td className="px-4 py-3 text-gray-600 hidden lg:table-cell">{p.brand || '—'}</td>
                 <td className="px-4 py-3">
                   <span className="font-semibold">₹{p.price}</span>
                   {(p.originalPrice || p.mrp) > p.price && (
@@ -262,147 +314,67 @@ export default function ProductsPage() {
                   )}
                 </td>
                 <td className="px-4 py-3">
-                  <span className={p.stock === 0 ? 'badge-red' : p.stock <= 5 ? 'badge-yellow' : 'badge-green'}>
-                    {p.stock === 0 ? 'Out' : p.stock}
-                  </span>
+                  {p.productType === 'variable'
+                    ? <span className="text-xs text-gray-500">Variations</span>
+                    : <span className={p.stock === 0 ? 'badge-red' : p.stock <= 5 ? 'badge-yellow' : 'badge-green'}>
+                        {p.stock === 0 ? 'Out' : p.stock}
+                      </span>
+                  }
                 </td>
-                <td className="px-4 py-3">
-                  <span className={p.status === 'active' ? 'badge-green' : 'badge-red'}>
-                    {p.status === 'out_of_stock' ? 'Out of Stock' : p.status || 'active'}
-                  </span>
-                </td>
+                <td className="px-4 py-3">{statusBadge(p.status)}</td>
                 <td className="px-4 py-3 text-right">
                   <div className="flex items-center justify-end gap-1">
-                    <button onClick={() => openEdit(p)} className="p-1.5 rounded hover:bg-gray-100 text-gray-500 hover:text-secondary transition-colors" title="Edit"><FiEdit2 size={14} /></button>
-                    <button onClick={() => handleDelete(p.id)} className="p-1.5 rounded hover:bg-red-50 text-gray-500 hover:text-red-500 transition-colors" title="Delete"><FiTrash2 size={14} /></button>
+                    {/* View on storefront */}
+                    {!trashMode && p.slug && (
+                      <a
+                        href={`http://localhost:3000/products/${p.id}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="p-1.5 rounded hover:bg-gray-100 text-gray-500 hover:text-secondary transition-colors"
+                        title="View on site"
+                      >
+                        <FiEye size={14} />
+                      </a>
+                    )}
+                    {/* Edit — only Firestore products */}
+                    {!trashMode && isFirestore(p.id) && (
+                      <Link href={`/products/${p.id}/edit`} className="p-1.5 rounded hover:bg-gray-100 text-gray-500 hover:text-secondary transition-colors" title="Edit">
+                        <FiEdit2 size={14} />
+                      </Link>
+                    )}
+                    {/* Duplicate */}
+                    {!trashMode && isFirestore(p.id) && (
+                      <button onClick={() => handleDuplicate(p.id)} className="p-1.5 rounded hover:bg-gray-100 text-gray-500 hover:text-blue-500 transition-colors" title="Duplicate">
+                        <FiCopy size={14} />
+                      </button>
+                    )}
+                    {/* Trash / Restore / Delete */}
+                    {trashMode ? (
+                      <>
+                        <button onClick={() => handleRestore(p.id)} className="p-1.5 rounded hover:bg-green-50 text-gray-500 hover:text-green-600 transition-colors" title="Restore">
+                          <FiRotateCcw size={14} />
+                        </button>
+                        <button onClick={() => handleDelete(p.id)} className="p-1.5 rounded hover:bg-red-50 text-gray-500 hover:text-red-500 transition-colors" title="Delete permanently">
+                          <FiTrash2 size={14} />
+                        </button>
+                      </>
+                    ) : (
+                      <button onClick={() => handleTrash(p.id)} className="p-1.5 rounded hover:bg-red-50 text-gray-500 hover:text-red-500 transition-colors" title="Move to trash">
+                        <FiTrash2 size={14} />
+                      </button>
+                    )}
                   </div>
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
-        {filtered.length === 0 && <p className="text-center text-gray-400 py-10">No products found</p>}
-      </div>
-
-      {/* Add / Edit Modal */}
-      {modal && (
-        <div
-          className="fixed inset-0 z-50 flex items-start justify-center p-4 bg-black/40 overflow-y-auto"
-          onClick={e => { if (e.target === e.currentTarget) closeModal(); }}
-        >
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl my-8">
-            {/* Modal header */}
-            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-              <h2 className="text-lg font-bold text-dark">
-                {modal === 'add' ? 'Add New Product' : 'Edit Product'}
-              </h2>
-              <button onClick={closeModal} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500">
-                <FiX size={20} />
-              </button>
-            </div>
-
-            <form onSubmit={handleSave} className="p-6 space-y-5">
-              {/* Image upload */}
-              <div>
-                <label className="block text-xs font-medium text-gray-600 mb-2">Product Image</label>
-                <div className="flex items-start gap-4">
-                  <div className="w-24 h-24 rounded-xl border-2 border-dashed border-gray-200 flex items-center justify-center flex-shrink-0 bg-gray-50 overflow-hidden">
-                    {imagePreview
-                      ? <img src={imagePreview} alt="preview" className="w-full h-full object-cover" />
-                      : <FiImage size={28} className="text-gray-300" />
-                    }
-                  </div>
-                  <div className="flex-1 space-y-2">
-                    <button
-                      type="button"
-                      onClick={() => fileInputRef.current?.click()}
-                      className="btn-outline text-sm flex items-center gap-2"
-                    >
-                      <FiUpload size={14} /> {imagePreview ? 'Change Image' : 'Upload Image'}
-                    </button>
-                    <input ref={fileInputRef} type="file" accept="image/*" onChange={handleFileChange} className="hidden" />
-                    <p className="text-xs text-gray-400">PNG, JPG, WebP — max 5 MB</p>
-                    <input
-                      type="url"
-                      placeholder="Or paste image URL..."
-                      value={imageFile ? '' : form.image}
-                      onChange={e => {
-                        setForm(f => ({ ...f, image: e.target.value }));
-                        setImagePreview(e.target.value);
-                        setImageFile(null);
-                      }}
-                      className="input text-xs"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* Name & SKU */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {field('Product Name *', 'name', 'text', { placeholder: 'e.g. Himalaya Baby Lotion 200ml', required: true })}
-                {field('SKU', 'sku', 'text', { placeholder: 'e.g. HBL-200' })}
-              </div>
-
-              {/* Category & Brand */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Category</label>
-                  <select value={form.category} onChange={e => setForm(f => ({ ...f, category: e.target.value }))} className="input text-sm">
-                    <option value="">Select category</option>
-                    {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
-                  </select>
-                </div>
-                {field('Brand', 'brand', 'text', { placeholder: 'e.g. Himalaya' })}
-              </div>
-
-              {/* Price / MRP / Stock / Status */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                {field('Selling Price (₹) *', 'price', 'number', { placeholder: '299', min: '0', step: '0.01' })}
-                {field('MRP / Original Price (₹)', 'originalPrice', 'number', { placeholder: '399', min: '0', step: '0.01' })}
-                {field('Stock *', 'stock', 'number', { placeholder: '50', min: '0' })}
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Status</label>
-                  <select value={form.status} onChange={e => setForm(f => ({ ...f, status: e.target.value }))} className="input text-sm">
-                    <option value="active">Active</option>
-                    <option value="inactive">Inactive</option>
-                    <option value="out_of_stock">Out of Stock</option>
-                  </select>
-                </div>
-              </div>
-
-              {/* Rating & Reviews */}
-              <div className="grid grid-cols-2 gap-4">
-                {field('Rating (0–5)', 'rating', 'number', { placeholder: '4.0', min: '0', max: '5', step: '0.1' })}
-                {field('Review Count', 'reviews', 'number', { placeholder: '0', min: '0' })}
-              </div>
-
-              {/* Description */}
-              <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">Description</label>
-                <textarea
-                  value={form.description}
-                  onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
-                  className="input text-sm resize-none"
-                  rows={3}
-                  placeholder="Product description..."
-                />
-              </div>
-
-              {formError && (
-                <p className="text-red-500 text-sm bg-red-50 px-3 py-2 rounded-lg">{formError}</p>
-              )}
-
-              {/* Footer buttons */}
-              <div className="flex justify-end gap-3 pt-2">
-                <button type="button" onClick={closeModal} className="btn-outline">Cancel</button>
-                <button type="submit" disabled={saving || uploading} className="btn-primary">
-                  {uploading ? 'Uploading image...' : saving ? 'Saving...' : modal === 'add' ? 'Add Product' : 'Save Changes'}
-                </button>
-              </div>
-            </form>
+        {!loading && filtered.length > 0 && (
+          <div className="px-4 py-3 border-t border-gray-50 text-xs text-gray-400">
+            Showing {filtered.length} of {products.length} products
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }
